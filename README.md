@@ -29,6 +29,7 @@ they are intentionally ignored by git.
 ## Commands
 
 ```sh
+just data-cdn-init
 just data-cdn-plan
 just data-cdn-apply
 ```
@@ -37,6 +38,7 @@ Or directly:
 
 ```sh
 cd terraform/data-cdn
+terraform init -backend-config=backend.hcl
 terraform plan
 terraform apply
 ```
@@ -45,6 +47,18 @@ terraform apply
 
 This repository is intended to be public. Do not commit Terraform state, plan
 files, local tfvars, backend config, or credentials.
+
+Terraform roots use a committed partial S3 backend:
+
+```hcl
+terraform {
+  backend "s3" {}
+}
+```
+
+Copy `backend.hcl.example` to `backend.hcl` inside the Terraform root and fill
+in the private state bucket, profile, and other local values. `backend.hcl` is
+ignored by git.
 
 Ignored local files include:
 
@@ -58,11 +72,6 @@ backend.hcl
 *.tfbackend
 ```
 
-Future remote-state configuration should use a committed partial backend plus
-an ignored local backend config file, so the state bucket name and profile do
-not need to be public.
-
 ## License
 
 MIT - see [LICENSE](LICENSE).
-

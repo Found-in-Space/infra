@@ -9,7 +9,12 @@ tf-fmt:
     terraform fmt -recursive terraform
 
 data-cdn-init:
-    cd {{ DATA_CDN }} && terraform init
+    @test -f {{ DATA_CDN }}/backend.hcl || (echo "Missing {{ DATA_CDN }}/backend.hcl; copy backend.hcl.example and fill in local values." >&2; exit 1)
+    cd {{ DATA_CDN }} && terraform init -backend-config=backend.hcl
+
+data-cdn-migrate-state:
+    @test -f {{ DATA_CDN }}/backend.hcl || (echo "Missing {{ DATA_CDN }}/backend.hcl; copy backend.hcl.example and fill in local values." >&2; exit 1)
+    cd {{ DATA_CDN }} && terraform init -migrate-state -force-copy -backend-config=backend.hcl
 
 data-cdn-validate:
     cd {{ DATA_CDN }} && terraform validate
@@ -25,4 +30,3 @@ data-cdn-output:
 
 data-cdn-state-list:
     cd {{ DATA_CDN }} && terraform state list
-

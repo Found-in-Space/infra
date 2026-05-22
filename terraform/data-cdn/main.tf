@@ -120,7 +120,7 @@ resource "aws_cloudfront_cache_policy" "range_aware" {
       }
     }
     enable_accept_encoding_brotli = false
-    enable_accept_encoding_gzip  = false
+    enable_accept_encoding_gzip   = false
   }
 }
 
@@ -175,13 +175,13 @@ resource "aws_cloudfront_distribution" "octree" {
   }
 
   default_cache_behavior {
-    target_origin_id             = "s3-octree"
-    viewer_protocol_policy       = "redirect-to-https"
-    allowed_methods              = ["GET", "HEAD", "OPTIONS"]
-    cached_methods               = ["GET", "HEAD"]
-    cache_policy_id              = aws_cloudfront_cache_policy.range_aware.id
-    response_headers_policy_id   = aws_cloudfront_response_headers_policy.cors.id
-    compress                     = false
+    target_origin_id           = "s3-octree"
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
+    cached_methods             = ["GET", "HEAD"]
+    cache_policy_id            = aws_cloudfront_cache_policy.range_aware.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.cors.id
+    compress                   = false
   }
 
   restrictions {
