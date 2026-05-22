@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Terraform state, plans, and local runtime data
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform.tfstate.lock.info
+crash.log
+crash.*.log
+
+# Local Terraform inputs and backend configuration
+*.tfvars
+*.tfvars.json
+backend.hcl
+*.tfbackend
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
