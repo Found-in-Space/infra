@@ -26,3 +26,15 @@ variable "cloudfront_comment" {
   type        = string
   default     = "Found in Space octree data CDN"
 }
+
+variable "route53_zone_name" {
+  description = "Public Route 53 hosted zone name for Found in Space."
+  type        = string
+  default     = "foundin.space"
+}
+
+variable "data_cdn_domain_name" {
+  description = "Stable public hostname for the Found in Space data CDN."
+  type        = string
+  default     = "data.foundin.space"
+}

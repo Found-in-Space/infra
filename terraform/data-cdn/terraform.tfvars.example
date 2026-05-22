@@ -7,3 +7,5 @@ create_bucket = false
 
 aws_region             = "eu-central-1"
 cloudfront_price_class = "PriceClass_100"
+route53_zone_name      = "foundin.space"
+data_cdn_domain_name   = "data.foundin.space"

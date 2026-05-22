@@ -13,6 +13,16 @@ provider "aws" {
   region = var.aws_region
 }
 
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
+data "aws_route53_zone" "foundin_space" {
+  name         = var.route53_zone_name
+  private_zone = false
+}
+
 # ---------------------------------------------------------------------------
 # S3 bucket — create or reference existing
 # ---------------------------------------------------------------------------
@@ -157,6 +167,45 @@ resource "aws_cloudfront_response_headers_policy" "cors" {
 }
 
 # ---------------------------------------------------------------------------
+# Custom domain certificate and DNS validation
+# ---------------------------------------------------------------------------
+
+resource "aws_acm_certificate" "data_cdn" {
+  provider = aws.us_east_1
+
+  domain_name       = var.data_cdn_domain_name
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_route53_record" "data_cdn_certificate_validation" {
+  for_each = {
+    for option in aws_acm_certificate.data_cdn.domain_validation_options : option.domain_name => {
+      name   = option.resource_record_name
+      record = option.resource_record_value
+      type   = option.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 300
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.foundin_space.zone_id
+}
+
+resource "aws_acm_certificate_validation" "data_cdn" {
+  provider = aws.us_east_1
+
+  certificate_arn         = aws_acm_certificate.data_cdn.arn
+  validation_record_fqdns = [for record in aws_route53_record.data_cdn_certificate_validation : record.fqdn]
+}
+
+# ---------------------------------------------------------------------------
 # CloudFront distribution
 # ---------------------------------------------------------------------------
 
@@ -167,6 +216,7 @@ resource "aws_cloudfront_distribution" "octree" {
   http_version        = "http2and3"
   price_class         = var.cloudfront_price_class
   wait_for_deployment = false
+  aliases             = [var.data_cdn_domain_name]
 
   origin {
     domain_name              = local.bucket_regional_domain
@@ -191,6 +241,32 @@ resource "aws_cloudfront_distribution" "octree" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
+    acm_certificate_arn      = aws_acm_certificate_validation.data_cdn.certificate_arn
+    minimum_protocol_version = "TLSv1.2_2021"
+    ssl_support_method       = "sni-only"
+  }
+}
+
+resource "aws_route53_record" "data_cdn_alias_a" {
+  zone_id = data.aws_route53_zone.foundin_space.zone_id
+  name    = var.data_cdn_domain_name
+  type    = "A"
+
+  alias {
+    name                   = aws_cloudfront_distribution.octree.domain_name
+    zone_id                = aws_cloudfront_distribution.octree.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "data_cdn_alias_aaaa" {
+  zone_id = data.aws_route53_zone.foundin_space.zone_id
+  name    = var.data_cdn_domain_name
+  type    = "AAAA"
+
+  alias {
+    name                   = aws_cloudfront_distribution.octree.domain_name
+    zone_id                = aws_cloudfront_distribution.octree.hosted_zone_id
+    evaluate_target_health = false
   }
 }

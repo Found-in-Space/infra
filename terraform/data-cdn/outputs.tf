@@ -17,3 +17,18 @@ output "octree_base_url" {
   description = "HTTPS base URL for octree data via CloudFront."
   value       = "https://${aws_cloudfront_distribution.octree.domain_name}"
 }
+
+output "data_cdn_domain_name" {
+  description = "Stable public hostname for the Found in Space data CDN."
+  value       = var.data_cdn_domain_name
+}
+
+output "data_cdn_base_url" {
+  description = "Stable HTTPS base URL for Found in Space data assets."
+  value       = "https://${var.data_cdn_domain_name}"
+}
+
+output "data_cdn_certificate_arn" {
+  description = "ACM certificate ARN used by the CloudFront distribution."
+  value       = aws_acm_certificate.data_cdn.arn
+}

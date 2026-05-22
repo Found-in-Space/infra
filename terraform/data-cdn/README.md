@@ -1,9 +1,15 @@
-# Infrastructure — CloudFront CDN for octree data
+# Infrastructure - Found in Space data CDN
 
 Terraform config that puts a CloudFront distribution in front of the S3 bucket
-where octree files are stored. This gives browsers HTTP/2 multiplexing, edge
-caching, and eliminates the HTTP/1.1 six-connection limit that makes range
-request–heavy workloads slow.
+where Found in Space data assets are stored. This gives browsers HTTP/2
+multiplexing, edge caching, and eliminates the HTTP/1.1 six-connection limit
+that makes range request-heavy workloads slow.
+
+The public CDN hostname is:
+
+```text
+https://data.foundin.space
+```
 
 ## Prerequisites
 
@@ -13,28 +19,30 @@ request–heavy workloads slow.
 ## Quick start
 
 ```bash
-cd infra/
+cd terraform/data-cdn
 
 # 1. Create your variables file from the example
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars — set bucket_name, create_bucket, region, etc.
 
 # 2. Initialise and apply
-terraform init
+terraform init -backend-config=backend.hcl
 terraform plan      # review what will be created
 terraform apply     # create the CloudFront distribution
 ```
 
-After apply, Terraform prints the CloudFront domain:
+After apply, Terraform prints both the stable CDN URL and the underlying
+CloudFront domain:
 
 ```
+data_cdn_base_url = "https://data.foundin.space"
 octree_base_url = "https://d1234abcdef8.cloudfront.net"
 ```
 
-Use that as the base URL for octree files, e.g.:
+Use the stable URL as the base URL for data files, e.g.:
 
 ```
-https://d1234abcdef8.cloudfront.net/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree
+https://data.foundin.space/c56103e6-ad4c-41f9-be06-048b48ec632b/stars.octree
 ```
 
 ## Existing vs new bucket
@@ -51,8 +59,10 @@ configure public access blocking and CORS.
 | Resource | Purpose |
 |----------|---------|
 | CloudFront distribution | HTTP/2+3 CDN, edge caching |
+| ACM certificate | TLS certificate for `data.foundin.space` in `us-east-1` |
 | Origin Access Control | Lets CloudFront read private S3 objects |
 | S3 bucket policy | Grants CloudFront read access |
+| Route 53 records | Certificate validation plus `data.foundin.space` A/AAAA aliases |
 | Cache policy | Includes `Range` header in cache key so range requests cache correctly |
 | Response headers policy | CORS headers for browser range requests |
 | S3 bucket *(optional)* | Only when `create_bucket = true` |
