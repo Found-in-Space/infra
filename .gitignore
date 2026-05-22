@@ -3,6 +3,7 @@
 
 # Terraform state, plans, and local runtime data
 **/.terraform/
+**/.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 *.tfplan
@@ -19,4 +20,3 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-

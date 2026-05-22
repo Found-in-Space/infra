@@ -1,6 +1,7 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 DATA_CDN := "terraform/data-cdn"
+ROUTE53 := "terraform/route53"
 
 default:
     @just --list
@@ -30,3 +31,22 @@ data-cdn-output:
 
 data-cdn-state-list:
     cd {{ DATA_CDN }} && terraform state list
+
+route53-init:
+    @test -f {{ ROUTE53 }}/backend.hcl || (echo "Missing {{ ROUTE53 }}/backend.hcl; copy backend.hcl.example and fill in local values." >&2; exit 1)
+    cd {{ ROUTE53 }} && terraform init -backend-config=backend.hcl
+
+route53-validate:
+    cd {{ ROUTE53 }} && terraform validate
+
+route53-plan:
+    cd {{ ROUTE53 }} && terraform plan
+
+route53-apply:
+    cd {{ ROUTE53 }} && terraform apply
+
+route53-output:
+    cd {{ ROUTE53 }} && terraform output
+
+route53-state-list:
+    cd {{ ROUTE53 }} && terraform state list

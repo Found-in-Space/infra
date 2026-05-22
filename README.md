@@ -14,6 +14,7 @@ resources.
 ```text
 terraform/
   data-cdn/  # S3 + CloudFront CDN for Found in Space data assets
+  route53/   # Public DNS for foundin.space
 ```
 
 The `data-cdn` Terraform root was moved as-is from the `octree` repository.

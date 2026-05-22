@@ -1,0 +1,7 @@
+bucket       = "your-private-terraform-state-bucket"
+key          = "found-in-space/infra/route53/terraform.tfstate"
+region       = "eu-west-1"
+profile      = "your-aws-profile"
+encrypt      = true
+use_lockfile = true
+
