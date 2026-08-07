@@ -2,6 +2,11 @@ terraform {
   required_version = ">= 1.5"
 
   required_providers {
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
+
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
@@ -38,9 +43,11 @@ data "aws_s3_bucket" "existing" {
 }
 
 locals {
-  bucket_id              = var.create_bucket ? aws_s3_bucket.octree[0].id : data.aws_s3_bucket.existing[0].id
-  bucket_arn             = var.create_bucket ? aws_s3_bucket.octree[0].arn : data.aws_s3_bucket.existing[0].arn
-  bucket_regional_domain = var.create_bucket ? aws_s3_bucket.octree[0].bucket_regional_domain_name : data.aws_s3_bucket.existing[0].bucket_regional_domain_name
+  bucket_id                       = var.create_bucket ? aws_s3_bucket.octree[0].id : data.aws_s3_bucket.existing[0].id
+  bucket_arn                      = var.create_bucket ? aws_s3_bucket.octree[0].arn : data.aws_s3_bucket.existing[0].arn
+  bucket_regional_domain          = var.create_bucket ? aws_s3_bucket.octree[0].bucket_regional_domain_name : data.aws_s3_bucket.existing[0].bucket_regional_domain_name
+  location_api_function_name      = "found-in-space-location-api-v1"
+  location_api_origin_domain_name = trimsuffix(trimprefix(aws_lambda_function_url.location_api.function_url, "https://"), "/")
 }
 
 # Block public access on managed buckets (existing buckets keep their config).
@@ -167,6 +174,194 @@ resource "aws_cloudfront_response_headers_policy" "cors" {
 }
 
 # ---------------------------------------------------------------------------
+# Edge time API
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudfront_cache_policy" "time_api" {
+  name        = "${var.bucket_name}-time-api-v1"
+  min_ttl     = 0
+  default_ttl = 0
+  max_ttl     = 0
+  comment     = "Disable caching for the edge-generated time API response."
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    cookies_config {
+      cookie_behavior = "none"
+    }
+    query_strings_config {
+      query_string_behavior = "none"
+    }
+    headers_config {
+      header_behavior = "none"
+    }
+    enable_accept_encoding_brotli = false
+    enable_accept_encoding_gzip   = false
+  }
+}
+
+resource "aws_cloudfront_function" "time_api" {
+  name    = "found-in-space-time-api-v1"
+  runtime = "cloudfront-js-2.0"
+  comment = "Return the CloudFront edge invocation time at /api/v1/time."
+  publish = true
+  code    = file("${path.module}/functions/time-api-v1.js")
+}
+
+# ---------------------------------------------------------------------------
+# Approximate viewer location API
+# ---------------------------------------------------------------------------
+
+data "archive_file" "location_api" {
+  type        = "zip"
+  source_file = "${path.module}/functions/location-api-v1.mjs"
+  output_path = "${path.module}/.terraform/location-api-v1.zip"
+}
+
+data "aws_iam_policy_document" "location_api_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "location_api" {
+  name               = local.location_api_function_name
+  assume_role_policy = data.aws_iam_policy_document.location_api_assume_role.json
+}
+
+resource "aws_cloudwatch_log_group" "location_api" {
+  name              = "/aws/lambda/${local.location_api_function_name}"
+  retention_in_days = 14
+}
+
+data "aws_iam_policy_document" "location_api_logs" {
+  statement {
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+    resources = ["${aws_cloudwatch_log_group.location_api.arn}:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "location_api_logs" {
+  name   = "write-function-logs"
+  role   = aws_iam_role.location_api.id
+  policy = data.aws_iam_policy_document.location_api_logs.json
+}
+
+resource "aws_lambda_function" "location_api" {
+  function_name = local.location_api_function_name
+  description   = "Return CloudFront's approximate viewer location without exposing the viewer IP."
+  role          = aws_iam_role.location_api.arn
+  handler       = "location-api-v1.handler"
+  runtime       = "nodejs22.x"
+  architectures = ["arm64"]
+  memory_size   = 128
+  timeout       = 3
+
+  filename         = data.archive_file.location_api.output_path
+  source_code_hash = data.archive_file.location_api.output_base64sha256
+
+  depends_on = [
+    aws_cloudwatch_log_group.location_api,
+    aws_iam_role_policy.location_api_logs,
+  ]
+}
+
+resource "aws_lambda_function_url" "location_api" {
+  function_name      = aws_lambda_function.location_api.function_name
+  authorization_type = "AWS_IAM"
+}
+
+resource "aws_cloudfront_origin_access_control" "location_api" {
+  name                              = "${var.bucket_name}-location-api-v1-oac"
+  description                       = "Sign requests from the data CDN to the private location API."
+  origin_access_control_origin_type = "lambda"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+
+resource "aws_cloudfront_origin_request_policy" "location_api" {
+  name    = "${var.bucket_name}-location-api-v1"
+  comment = "Forward only CloudFront's non-IP viewer location headers."
+
+  cookies_config {
+    cookie_behavior = "none"
+  }
+
+  query_strings_config {
+    query_string_behavior = "none"
+  }
+
+  headers_config {
+    header_behavior = "whitelist"
+
+    headers {
+      items = [
+        "CloudFront-Viewer-City",
+        "CloudFront-Viewer-Country",
+        "CloudFront-Viewer-Country-Name",
+        "CloudFront-Viewer-Country-Region-Name",
+        "CloudFront-Viewer-Latitude",
+        "CloudFront-Viewer-Longitude",
+        "CloudFront-Viewer-Postal-Code",
+        "CloudFront-Viewer-Time-Zone",
+      ]
+    }
+  }
+}
+
+resource "aws_cloudfront_response_headers_policy" "location_api" {
+  name    = "${var.bucket_name}-location-api-v1"
+  comment = "CORS, no-store, and browser security headers for the location API."
+
+  cors_config {
+    access_control_allow_credentials = false
+
+    access_control_allow_headers {
+      items = ["*"]
+    }
+
+    access_control_allow_methods {
+      items = ["GET", "HEAD", "OPTIONS"]
+    }
+
+    access_control_allow_origins {
+      items = ["*"]
+    }
+
+    access_control_max_age_sec = 86400
+    origin_override            = true
+  }
+
+  custom_headers_config {
+    items {
+      header   = "Cache-Control"
+      override = true
+      value    = "no-store"
+    }
+  }
+
+  security_headers_config {
+    content_type_options {
+      override = true
+    }
+
+    referrer_policy {
+      override        = true
+      referrer_policy = "no-referrer"
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Custom domain certificate and DNS validation
 # ---------------------------------------------------------------------------
 
@@ -224,6 +419,19 @@ resource "aws_cloudfront_distribution" "octree" {
     origin_access_control_id = aws_cloudfront_origin_access_control.octree.id
   }
 
+  origin {
+    domain_name              = local.location_api_origin_domain_name
+    origin_id                = "location-api-v1"
+    origin_access_control_id = aws_cloudfront_origin_access_control.location_api.id
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
   default_cache_behavior {
     target_origin_id           = "s3-octree"
     viewer_protocol_policy     = "redirect-to-https"
@@ -231,6 +439,33 @@ resource "aws_cloudfront_distribution" "octree" {
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = aws_cloudfront_cache_policy.range_aware.id
     response_headers_policy_id = aws_cloudfront_response_headers_policy.cors.id
+    compress                   = false
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/api/v1/time"
+    target_origin_id       = "s3-octree"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    cache_policy_id        = aws_cloudfront_cache_policy.time_api.id
+    compress               = false
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.time_api.arn
+    }
+  }
+
+  ordered_cache_behavior {
+    path_pattern               = "/api/v1/location"
+    target_origin_id           = "location-api-v1"
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["GET", "HEAD", "OPTIONS"]
+    cached_methods             = ["GET", "HEAD"]
+    cache_policy_id            = aws_cloudfront_cache_policy.time_api.id
+    origin_request_policy_id   = aws_cloudfront_origin_request_policy.location_api.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.location_api.id
     compress                   = false
   }
 
@@ -245,6 +480,23 @@ resource "aws_cloudfront_distribution" "octree" {
     minimum_protocol_version = "TLSv1.2_2021"
     ssl_support_method       = "sni-only"
   }
+}
+
+resource "aws_lambda_permission" "location_api_url_from_cloudfront" {
+  statement_id           = "AllowCloudFrontFunctionUrl"
+  action                 = "lambda:InvokeFunctionUrl"
+  function_name          = aws_lambda_function.location_api.function_name
+  principal              = "cloudfront.amazonaws.com"
+  source_arn             = aws_cloudfront_distribution.octree.arn
+  function_url_auth_type = "AWS_IAM"
+}
+
+resource "aws_lambda_permission" "location_api_from_cloudfront" {
+  statement_id  = "AllowCloudFrontInvokeFunction"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.location_api.function_name
+  principal     = "cloudfront.amazonaws.com"
+  source_arn    = aws_cloudfront_distribution.octree.arn
 }
 
 resource "aws_route53_record" "data_cdn_alias_a" {

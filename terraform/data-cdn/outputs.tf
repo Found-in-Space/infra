@@ -28,6 +28,16 @@ output "data_cdn_base_url" {
   value       = "https://${var.data_cdn_domain_name}"
 }
 
+output "time_api_url" {
+  description = "CloudFront edge time API URL."
+  value       = "https://${var.data_cdn_domain_name}/api/v1/time"
+}
+
+output "location_api_url" {
+  description = "CloudFront approximate viewer location API URL."
+  value       = "https://${var.data_cdn_domain_name}/api/v1/location"
+}
+
 output "data_cdn_certificate_arn" {
   description = "ACM certificate ARN used by the CloudFront distribution."
   value       = aws_acm_certificate.data_cdn.arn
